@@ -3,6 +3,7 @@ package com.v2ray.ang.ui
 import android.content.Intent
 import android.graphics.Color
 import android.text.TextUtils
+import android.util.Log
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import android.view.LayoutInflater
@@ -36,6 +37,7 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
         private const val VIEW_TYPE_FOOTER = 2
     }
 
+    var currSelectedIndex: Int? = null;
     private var mActivity: MainActivity = activity
     private val mainStorage by lazy { MMKV.mmkvWithID(MmkvManager.ID_MAIN, MMKV.MULTI_PROCESS_MODE) }
     private val subStorage by lazy { MMKV.mmkvWithID(MmkvManager.ID_SUB, MMKV.MULTI_PROCESS_MODE) }
@@ -49,6 +51,7 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
 
     override fun onBindViewHolder(holder: BaseViewHolder, position: Int) {
         if (holder is MainViewHolder) {
+
             val guid = mActivity.mainViewModel.serversCache[position].guid
             val config = mActivity.mainViewModel.serversCache[position].config
 //            //filter
@@ -155,8 +158,12 @@ class MainRecyclerAdapter(val activity: MainActivity) : RecyclerView.Adapter<Mai
                 if (guid != selected) {
                     mainStorage?.encode(MmkvManager.KEY_SELECTED_SERVER, guid)
                     if (!TextUtils.isEmpty(selected)) {
+
                         notifyItemChanged(mActivity.mainViewModel.getPosition(selected!!))
                     }
+                    Log.d("TAG", "onBindViewHolder: " + mActivity.mainViewModel.getPosition(guid))
+                    currSelectedIndex =  mActivity.mainViewModel.getPosition(guid);//当前选择的位置
+
                     notifyItemChanged(mActivity.mainViewModel.getPosition(guid))
                     if (isRunning) {
                         mActivity.showCircle()

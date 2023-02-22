@@ -1,61 +1,81 @@
 package com.v2ray.ang.ui
 
 import android.Manifest
-import android.content.*
+import android.app.ProgressDialog
+import android.content.ActivityNotFoundException
+import android.content.Intent
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.net.VpnService
-import androidx.recyclerview.widget.LinearLayoutManager
-import android.view.Menu
-import android.view.MenuItem
-import com.tbruyelle.rxpermissions.RxPermissions
-import com.v2ray.ang.R
 import android.os.Bundle
 import android.text.TextUtils
-import android.view.KeyEvent
-import com.v2ray.ang.AppConfig
-import android.content.res.ColorStateList
-import com.google.android.material.navigation.NavigationView
-import androidx.core.content.ContextCompat
-import androidx.core.view.GravityCompat
-import androidx.appcompat.app.ActionBarDrawerToggle
-import androidx.recyclerview.widget.ItemTouchHelper
 import android.util.Log
+import android.view.KeyEvent
+import android.view.Menu
+import android.view.MenuItem
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
+import androidx.core.view.GravityCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.navigation.NavigationView
+import com.tbruyelle.rxpermissions.RxPermissions
 import com.tencent.mmkv.MMKV
+import com.v2ray.ang.AppConfig
 import com.v2ray.ang.AppConfig.ANG_PACKAGE
 import com.v2ray.ang.BuildConfig
+import com.v2ray.ang.R
 import com.v2ray.ang.databinding.ActivityMainBinding
 import com.v2ray.ang.dto.EConfigType
 import com.v2ray.ang.extension.toast
-import rx.Observable
-import rx.android.schedulers.AndroidSchedulers
-import java.util.concurrent.TimeUnit
 import com.v2ray.ang.helper.SimpleItemTouchHelperCallback
 import com.v2ray.ang.service.V2RayServiceManager
-import com.v2ray.ang.util.*
+import com.v2ray.ang.util.AngConfigManager
+import com.v2ray.ang.util.MmkvManager
+import com.v2ray.ang.util.SpeedtestUtil
+import com.v2ray.ang.util.Utils
 import com.v2ray.ang.viewmodel.MainViewModel
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import me.drakeet.support.toast.ToastCompat
+import rx.Observable
+import rx.android.schedulers.AndroidSchedulers
 import java.io.File
 import java.io.FileOutputStream
+import java.util.concurrent.TimeUnit
 
 class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedListener {
     private lateinit var binding: ActivityMainBinding
 
     private val adapter by lazy { MainRecyclerAdapter(this) }
-    private val mainStorage by lazy { MMKV.mmkvWithID(MmkvManager.ID_MAIN, MMKV.MULTI_PROCESS_MODE) }
-    private val settingsStorage by lazy { MMKV.mmkvWithID(MmkvManager.ID_SETTING, MMKV.MULTI_PROCESS_MODE) }
-    private val requestVpnPermission = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (it.resultCode == RESULT_OK) {
-            startV2Ray()
-        }
+    private val mainStorage by lazy {
+        MMKV.mmkvWithID(
+            MmkvManager.ID_MAIN,
+            MMKV.MULTI_PROCESS_MODE
+        )
     }
+    private val settingsStorage by lazy {
+        MMKV.mmkvWithID(
+            MmkvManager.ID_SETTING,
+            MMKV.MULTI_PROCESS_MODE
+        )
+    }
+    private val requestVpnPermission =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (it.resultCode == RESULT_OK) {
+                startV2Ray()
+            }
+        }
     private var mItemTouchHelper: ItemTouchHelper? = null
     val mainViewModel: MainViewModel by viewModels()
+
+    var progressDialog: ProgressDialog? = null;
+    private val TAG = "MainActivity"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,7 +118,12 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
 
         val toggle = ActionBarDrawerToggle(
-                this, binding.drawerLayout, binding.toolbar, R.string.navigation_drawer_open, R.string.navigation_drawer_close)
+            this,
+            binding.drawerLayout,
+            binding.toolbar,
+            R.string.navigation_drawer_open,
+            R.string.navigation_drawer_close
+        )
         binding.drawerLayout.addDrawerListener(toggle)
         toggle.syncState()
         binding.navView.setNavigationItemSelectedListener(this)
@@ -121,15 +146,35 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         mainViewModel.isRunning.observe(this) { isRunning ->
             adapter.isRunning = isRunning
             if (isRunning) {
-                binding.fab.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.colorSelected))
+                binding.fab.backgroundTintList =
+                    ColorStateList.valueOf(ContextCompat.getColor(this, R.color.colorSelected))
                 setTestState(getString(R.string.connection_connected))
                 binding.layoutTest.isFocusable = true
             } else {
-                binding.fab.backgroundTintList = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.colorUnselected))
+                binding.fab.backgroundTintList =
+                    ColorStateList.valueOf(ContextCompat.getColor(this, R.color.colorUnselected))
                 setTestState(getString(R.string.connection_not_connected))
                 binding.layoutTest.isFocusable = false
             }
             hideCircle()
+        }
+
+        mainViewModel.isShowProgress.observe(this) {
+            Log.d(TAG, "isShowProgress: $it")
+            if (it) {
+
+                progressDialog = ProgressDialog(this@MainActivity)
+                progressDialog?.setTitle("测试延迟进度")
+
+                progressDialog?.setCancelable(false) //设置是否可以通过返回键退出此布布局
+                progressDialog?.show()
+            } else {
+                progressDialog?.dismiss()
+            }
+        }
+        mainViewModel.currentProgressIndex.observe(this) {
+            Log.d(TAG, "currentProgressIndex: $it")
+            progressDialog?.setMessage("Progress: " + it.toString() + "/" + mainViewModel.serverList.count())
         }
         mainViewModel.startListenBroadcast()
     }
@@ -140,17 +185,20 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
             try {
                 val geo = arrayOf("geosite.dat", "geoip.dat")
                 assets.list("")
-                        ?.filter { geo.contains(it) }
-                        ?.filter { !File(extFolder, it).exists() }
-                        ?.forEach {
-                            val target = File(extFolder, it)
-                            assets.open(it).use { input ->
-                                FileOutputStream(target).use { output ->
-                                    input.copyTo(output)
-                                }
+                    ?.filter { geo.contains(it) }
+                    ?.filter { !File(extFolder, it).exists() }
+                    ?.forEach {
+                        val target = File(extFolder, it)
+                        assets.open(it).use { input ->
+                            FileOutputStream(target).use { output ->
+                                input.copyTo(output)
                             }
-                            Log.i(ANG_PACKAGE, "Copied from apk assets folder to ${target.absolutePath}")
                         }
+                        Log.i(
+                            ANG_PACKAGE,
+                            "Copied from apk assets folder to ${target.absolutePath}"
+                        )
+                    }
             } catch (e: Exception) {
                 Log.e(ANG_PACKAGE, "asset copy failed", e)
             }
@@ -188,10 +236,10 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
             Utils.stopVService(this)
         }
         Observable.timer(500, TimeUnit.MILLISECONDS)
-                .observeOn(AndroidSchedulers.mainThread())
-                .subscribe {
-                    startV2Ray()
-                }
+            .observeOn(AndroidSchedulers.mainThread())
+            .subscribe {
+                startV2Ray()
+            }
     }
 
     public override fun onResume() {
@@ -265,7 +313,11 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         }
 
         R.id.export_all -> {
-            if (AngConfigManager.shareNonCustomConfigsToClipboard(this, mainViewModel.serverList) == 0) {
+            if (AngConfigManager.shareNonCustomConfigsToClipboard(
+                    this,
+                    mainViewModel.serverList
+                ) == 0
+            ) {
                 toast(R.string.toast_success)
             } else {
                 toast(R.string.toast_failure)
@@ -290,11 +342,11 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 
         R.id.del_all_config -> {
             AlertDialog.Builder(this).setMessage(R.string.del_config_comfirm)
-                    .setPositiveButton(android.R.string.ok) { _, _ ->
-                        MmkvManager.removeAllServer()
-                        mainViewModel.reloadServerList()
-                    }
-                    .show()
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    MmkvManager.removeAllServer()
+                    mainViewModel.reloadServerList()
+                }
+                .show()
             true
         }
 
@@ -316,11 +368,15 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
             mainViewModel.filterConfig(this)
             true
         }
-
+        R.id.currentPosition -> {
+            Log.d("TAG", "onOptionsItemSelected: currentPosition:" + adapter.currSelectedIndex)
+            adapter.currSelectedIndex?.let { binding.recyclerView.scrollToPosition(it) };
+            true
+        }
         else -> super.onOptionsItemSelected(item)
     }
 
-    private fun importManually(createConfigType : Int) {
+    private fun importManually(createConfigType: Int) {
         startActivity(
             Intent()
                 .putExtra("createConfigType", createConfigType)
@@ -339,31 +395,38 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
 //                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP), requestCode)
 //        } catch (e: Exception) {
         RxPermissions(this)
-                .request(Manifest.permission.CAMERA)
-                .subscribe {
-                    if (it)
-                        if (forConfig)
-                            scanQRCodeForConfig.launch(Intent(this, ScannerActivity::class.java))
-                        else
-                            scanQRCodeForUrlToCustomConfig.launch(Intent(this, ScannerActivity::class.java))
+            .request(Manifest.permission.CAMERA)
+            .subscribe {
+                if (it)
+                    if (forConfig)
+                        scanQRCodeForConfig.launch(Intent(this, ScannerActivity::class.java))
                     else
-                        toast(R.string.toast_permission_denied)
-                }
+                        scanQRCodeForUrlToCustomConfig.launch(
+                            Intent(
+                                this,
+                                ScannerActivity::class.java
+                            )
+                        )
+                else
+                    toast(R.string.toast_permission_denied)
+            }
 //        }
         return true
     }
 
-    private val scanQRCodeForConfig = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (it.resultCode == RESULT_OK) {
-            importBatchConfig(it.data?.getStringExtra("SCAN_RESULT"))
+    private val scanQRCodeForConfig =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (it.resultCode == RESULT_OK) {
+                importBatchConfig(it.data?.getStringExtra("SCAN_RESULT"))
+            }
         }
-    }
 
-    private val scanQRCodeForUrlToCustomConfig = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        if (it.resultCode == RESULT_OK) {
-            importConfigCustomUrl(it.data?.getStringExtra("SCAN_RESULT"))
+    private val scanQRCodeForUrlToCustomConfig =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            if (it.resultCode == RESULT_OK) {
+                importConfigCustomUrl(it.data?.getStringExtra("SCAN_RESULT"))
+            }
         }
-    }
 
     /**
      * import config from clipboard
@@ -381,9 +444,9 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
     }
 
     fun importBatchConfig(server: String?, subid: String = "") {
-        val subid2 = if(subid.isNullOrEmpty()){
+        val subid2 = if (subid.isNullOrEmpty()) {
             mainViewModel.subscriptionId
-        }else{
+        } else {
             subid
         }
         val append = subid.isNullOrEmpty()
@@ -395,6 +458,8 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         if (count > 0) {
             toast(R.string.toast_success)
             mainViewModel.reloadServerList()
+            //订阅更新后，自动进行测速等操作
+            mainViewModel.testAllRealPing()
         } else {
             toast(R.string.toast_failure)
         }
@@ -480,8 +545,8 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
             toast(R.string.title_sub_update)
             MmkvManager.decodeSubscriptions().forEach {
                 if (TextUtils.isEmpty(it.first)
-                        || TextUtils.isEmpty(it.second.remarks)
-                        || TextUtils.isEmpty(it.second.url)
+                    || TextUtils.isEmpty(it.second.remarks)
+                    || TextUtils.isEmpty(it.second.url)
                 ) {
                     return@forEach
                 }
@@ -524,37 +589,43 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
         intent.addCategory(Intent.CATEGORY_OPENABLE)
 
         try {
-            chooseFileForCustomConfig.launch(Intent.createChooser(intent, getString(R.string.title_file_chooser)))
+            chooseFileForCustomConfig.launch(
+                Intent.createChooser(
+                    intent,
+                    getString(R.string.title_file_chooser)
+                )
+            )
         } catch (ex: ActivityNotFoundException) {
             toast(R.string.toast_require_file_manager)
         }
     }
 
-    private val chooseFileForCustomConfig = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-        val uri = it.data?.data
-        if (it.resultCode == RESULT_OK && uri != null) {
-            readContentFromUri(uri)
+    private val chooseFileForCustomConfig =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+            val uri = it.data?.data
+            if (it.resultCode == RESULT_OK && uri != null) {
+                readContentFromUri(uri)
+            }
         }
-    }
 
     /**
      * read content from uri
      */
     private fun readContentFromUri(uri: Uri) {
         RxPermissions(this)
-                .request(Manifest.permission.READ_EXTERNAL_STORAGE)
-                .subscribe {
-                    if (it) {
-                        try {
-                            contentResolver.openInputStream(uri).use { input ->
-                                importCustomizeConfig(input?.bufferedReader()?.readText())
-                            }
-                        } catch (e: Exception) {
-                            e.printStackTrace()
+            .request(Manifest.permission.READ_EXTERNAL_STORAGE)
+            .subscribe {
+                if (it) {
+                    try {
+                        contentResolver.openInputStream(uri).use { input ->
+                            importCustomizeConfig(input?.bufferedReader()?.readText())
                         }
-                    } else
-                        toast(R.string.toast_permission_denied)
-                }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                } else
+                    toast(R.string.toast_permission_denied)
+            }
     }
 
     /**
@@ -571,7 +642,11 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
             toast(R.string.toast_success)
             //adapter.notifyItemInserted(mainViewModel.serverList.lastIndex)
         } catch (e: Exception) {
-            ToastCompat.makeText(this, "${getString(R.string.toast_malformed_josn)} ${e.cause?.message}", Toast.LENGTH_LONG).show()
+            ToastCompat.makeText(
+                this,
+                "${getString(R.string.toast_malformed_josn)} ${e.cause?.message}",
+                Toast.LENGTH_LONG
+            ).show()
             e.printStackTrace()
             return
         }
@@ -605,16 +680,16 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
     fun hideCircle() {
         try {
             Observable.timer(300, TimeUnit.MILLISECONDS)
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .subscribe {
-                        try {
-                            if (binding.fabProgressCircle.isShown) {
-                                binding.fabProgressCircle.hide()
-                            }
-                        } catch (e: Exception) {
-                            Log.w(ANG_PACKAGE, e)
+                .observeOn(AndroidSchedulers.mainThread())
+                .subscribe {
+                    try {
+                        if (binding.fabProgressCircle.isShown) {
+                            binding.fabProgressCircle.hide()
                         }
+                    } catch (e: Exception) {
+                        Log.w(ANG_PACKAGE, e)
                     }
+                }
         } catch (e: Exception) {
             Log.d(ANG_PACKAGE, e.toString())
         }
@@ -636,8 +711,10 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                 startActivity(Intent(this, SubSettingActivity::class.java))
             }
             R.id.settings -> {
-                startActivity(Intent(this, SettingsActivity::class.java)
-                        .putExtra("isRunning", mainViewModel.isRunning.value == true))
+                startActivity(
+                    Intent(this, SettingsActivity::class.java)
+                        .putExtra("isRunning", mainViewModel.isRunning.value == true)
+                )
             }
             R.id.user_asset_setting -> {
                 startActivity(Intent(this, UserAssetActivity::class.java))
@@ -646,7 +723,10 @@ class MainActivity : BaseActivity(), NavigationView.OnNavigationItemSelectedList
                 Utils.openUri(this, AppConfig.v2rayNGIssues)
             }
             R.id.promotion -> {
-                Utils.openUri(this, "${Utils.decode(AppConfig.promotionUrl)}?t=${System.currentTimeMillis()}")
+                Utils.openUri(
+                    this,
+                    "${Utils.decode(AppConfig.promotionUrl)}?t=${System.currentTimeMillis()}"
+                )
             }
             R.id.logcat -> {
                 startActivity(Intent(this, LogcatActivity::class.java))

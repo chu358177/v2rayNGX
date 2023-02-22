@@ -33,6 +33,7 @@ import libv2ray.V2RayVPNServiceSupportsSet
 import rx.Observable
 import rx.Subscription
 import java.lang.ref.SoftReference
+import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
 object V2RayServiceManager {
@@ -348,7 +349,7 @@ object V2RayServiceManager {
             val outboundTags = currentConfig?.getAllOutboundTags()
             outboundTags?.remove(TAG_DIRECT)
 
-            mSubscription = Observable.interval(3, java.util.concurrent.TimeUnit.SECONDS)
+            mSubscription = Observable.interval(3, TimeUnit.SECONDS)
                     .subscribe {
                         val queryTime = System.currentTimeMillis()
                         val sinceLastQueryInSeconds = (queryTime - lastQueryTime) / 1000.0

@@ -27,6 +27,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val mainStorage by lazy { MMKV.mmkvWithID(MmkvManager.ID_MAIN, MMKV.MULTI_PROCESS_MODE) }
     private val serverRawStorage by lazy { MMKV.mmkvWithID(MmkvManager.ID_SERVER_RAW, MMKV.MULTI_PROCESS_MODE) }
 
+    var realPingCount:Int = 0;
     var serverList = MmkvManager.decodeServerList()
     var subscriptionId: String = ""
     var keywordFilter: String = ""
@@ -36,10 +37,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val updateListAction by lazy { MutableLiveData<Int>() }
     val updateTestResultAction by lazy { MutableLiveData<String>() }
 
+    //进度
+    val isShowProgress by lazy { MutableLiveData<Boolean>() }
+    val currentProgressIndex by lazy { MutableLiveData<Int>() }
+
     private val tcpingTestScope by lazy { CoroutineScope(Dispatchers.IO) }
 
     fun startListenBroadcast() {
         isRunning.value = false
+        isShowProgress.value = false
         getApplication<AngApplication>().registerReceiver(mMsgReceiver, IntentFilter(AppConfig.BROADCAST_ACTION_ACTIVITY))
         MessageUtil.sendMsg2Service(getApplication(), AppConfig.MSG_REGISTER_CLIENT, "")
     }
@@ -226,8 +232,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
                 AppConfig.MSG_MEASURE_CONFIG_SUCCESS -> {
                     val resultPair = intent.getSerializableExtra("content") as Pair<String, Long>
+                    Log.d("XXX", "resultPair.first: " + serversCache[getPosition(resultPair.first)].config.remarks  + "  resultPair.second: " + resultPair.second)
                     MmkvManager.encodeServerTestDelayMillis(resultPair.first, resultPair.second)
                     updateListAction.value = getPosition(resultPair.first)
+                    realPingCount++;
+                    Log.d("XXX", "onReceive: realPingCount: " + realPingCount)
+                    //getApplication<AngApplication>().toast("Progress: "+realPingCount.toString() + "/" + serverList.count())
+
+                    if(!isShowProgress.value!!)isShowProgress.value = true;
+                    currentProgressIndex.value = realPingCount;
+//                    val dialog = AlertDialog.Builder(getApplication<AngApplication>())
+//                    dialog.setTitle("Progress: "+realPingCount.toString() + "/" + serverList.count())
+//                    dialog.setCancelable(false)
+//                    val dd = dialog.show()
+                    if(serverList.count() == realPingCount){
+                        Log.d("XXX", "onReceive: realPingAll done.")
+                        realPingCount = 0;
+                        isShowProgress.value = false;
+                        MmkvManager.removeInvalidServer()
+                        MmkvManager.sortByTestResults()
+                        reloadServerList()
+                    }
                 }
             }
         }
