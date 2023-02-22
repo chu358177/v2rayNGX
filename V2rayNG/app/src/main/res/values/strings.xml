@@ -31,7 +31,7 @@
     <string name="menu_item_import_config_manually_ss">Type manually[Shadowsocks]</string>
     <string name="menu_item_import_config_manually_socks">Type manually[Socks]</string>
     <string name="menu_item_import_config_manually_trojan">Type manually[Trojan]</string>
-    <string name="menu_item_import_config_custom">custom config</string>
+    <string name="menu_item_import_config_custom">Custom config</string>
     <string name="menu_item_import_config_custom_clipboard">Import custom config from Clipboard</string>
     <string name="menu_item_import_config_custom_local">Import custom config from locally</string>
     <string name="menu_item_import_config_custom_url">Import custom config from URL</string>
@@ -62,6 +62,9 @@
     <string name="server_lab_security4">User(Optional)</string>
     <string name="server_lab_encryption">encryption</string>
     <string name="server_lab_flow">flow</string>
+    <string name="server_lab_public_key">public key</string>
+    <string name="server_lab_short_id">short Id</string>
+    <string name="server_lab_spider_x">spiderX</string>
     <string name="toast_success">Success</string>
     <string name="toast_failure">Failure</string>
     <string name="toast_none_data">There is nothing</string>
